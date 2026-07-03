@@ -198,6 +198,12 @@ public class BillController {
             @RequestParam(name = "sort", defaultValue = "createDate,desc") String sortField, @PathVariable Long billId,
             @RequestParam String trangThaiDonHang, RedirectAttributes redirectAttributes) {
         try {
+            boolean isAdmin = authentication.getAuthorities().stream()
+                    .anyMatch(r -> r.getAuthority().equals("ROLE_ADMIN"));
+            if (isAdmin) {
+                redirectAttributes.addFlashAttribute("message", "Lỗi: Admin chỉ được xem, không có quyền thay đổi trạng thái đơn hàng!");
+                return "redirect:/admin/bill-list";
+            }
             checkBillOwnership(billId, authentication);
             Bill bill = billService.updateStatus(trangThaiDonHang, billId);
             redirectAttributes.addFlashAttribute("message",
@@ -214,6 +220,12 @@ public class BillController {
     public String updateBillStatus2(Model model, Authentication authentication, @PathVariable Long billId,
             @RequestParam String trangThaiDonHang, RedirectAttributes redirectAttributes) {
         try {
+            boolean isAdmin = authentication.getAuthorities().stream()
+                    .anyMatch(r -> r.getAuthority().equals("ROLE_ADMIN"));
+            if (isAdmin) {
+                redirectAttributes.addFlashAttribute("message", "Lỗi: Admin chỉ được xem, không có quyền thay đổi trạng thái đơn hàng!");
+                return "redirect:/admin/getbill-detail/" + billId;
+            }
             checkBillOwnership(billId, authentication);
             Bill bill = billService.updateStatus(trangThaiDonHang, billId);
             redirectAttributes.addFlashAttribute("message",

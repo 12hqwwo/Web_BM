@@ -99,7 +99,7 @@ public class VpdContextFilter extends OncePerRequestFilter {
                             cs4.setString(1, tinOlsLabel);
                             cs4.execute();
                         } catch (Exception ex) {
-                            // Bỏ qua nếu OLS của Tín chưa được apply
+                            System.err.println("❌ LỖI KHI GÁN NHÃN OLS ACCESS_POLICY: " + ex.getMessage());
                         }
 
                         // ===== FIX 5C (OLS - Quỳnh): Set BRANCH_OLS_POLICY label (mới) =====
@@ -215,7 +215,8 @@ public class VpdContextFilter extends OncePerRequestFilter {
             case "ROLE_ADMIN" -> "SEC:BR1,BR2:MNG,OPR";
             case "ROLE_VENDOR" -> "CONF:" + branchCompartment + ":MNG,OPR";
             case "ROLE_STAFF" -> "PUB:" + branchCompartment + ":OPR";
-            default -> "PUB"; // ROLE_USER, ROLE_GUEST
+            case "ROLE_USER" -> "PUB:BR1,BR2:OPR";
+            default -> "PUB"; // ROLE_GUEST
         };
     }
 

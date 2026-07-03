@@ -152,7 +152,7 @@
             </td>
 
             <td>
-                <div class="d-flex align-items-center">
+                <div class="d-flex align-items-center" sec:authorize="!hasRole('ADMIN')">
                     <form th:action="@{'/admin/update-bill-status/' + ${item.maHoaDon}}" method="get">
                         <input type="hidden" name="trangThaiDonHang" value="HUY">
                         <span type="button"

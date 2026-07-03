@@ -50,43 +50,42 @@ public class ShoppingCartController {
 	@GetMapping("/shoping-cart")
 	public String viewShoppingCart(Model model, HttpSession session) {
 		List<CartDto> cartDtoList = new ArrayList<>();
-		boolean isGuest = true;
 
-		// ✅ Nếu người dùng đăng nhập -> lấy giỏ hàng từ DB
-		try {
-			List<CartDto> userCart = cartService.getAllCartByAccountId();
-			if (userCart != null && !userCart.isEmpty()) {
-				cartDtoList = userCart;
-				isGuest = false;
+		// ✅ [FIX] Kiểm tra login trước, không dựa vào số lượng cart
+		org.springframework.security.core.Authentication auth =
+				org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+		boolean isGuest = (auth == null || !auth.isAuthenticated()
+				|| "anonymousUser".equals(auth.getPrincipal()));
+
+		if (!isGuest) {
+			// ✅ User đăng nhập → lấy giỏ hàng từ DB (kể cả rỗng)
+			try {
+				List<CartDto> userCart = cartService.getAllCartByAccountId();
+				if (userCart != null) {
+					cartDtoList = userCart;
+				}
+			} catch (Exception e) {
+				// Log lỗi nhưng vẫn tiếp tục, hiển thị cart rỗng
+				System.err.println("❌ Lỗi khi lấy giỏ hàng: " + e.getMessage());
 			}
-		} catch (Exception ignored) {
-			// User chưa đăng nhập hoặc không có giỏ hàng trong DB
-		}
-
-		// ✅ Nếu Guest -> lấy giỏ hàng từ session
-		if (isGuest) {
+		} else {
+			// ✅ Guest → lấy giỏ hàng từ session
+			@SuppressWarnings("unchecked")
 			List<GuestCartDto> guestCart = (List<GuestCartDto>) session.getAttribute("guestCart");
 
 			if (guestCart != null && !guestCart.isEmpty()) {
 				for (GuestCartDto g : guestCart) {
 					CartDto c = new CartDto();
-
-					// ✅ Set ID giả để JavaScript có thể hoạt động
-					c.setId(g.getProductId()); // Dùng productId làm cartId tạm
+					c.setId(g.getProductId());
 					c.setQuantity(g.getQuantity());
 
-					// ✅ Map thông tin sản phẩm
 					ProductCart p = new ProductCart();
-					p.setProductId(g.getProductId()); // ✅ Sửa từ setId() → setProductId()
+					p.setProductId(g.getProductId());
 					p.setName(g.getName());
 					p.setImageUrl(g.getImageUrl());
 					p.setPrice(g.getPrice());
-
 					c.setProduct(p);
-
-					// ✅ QUAN TRỌNG: Set detail = null để HTML biết là guest cart
 					c.setDetail(null);
-
 					cartDtoList.add(c);
 				}
 			}

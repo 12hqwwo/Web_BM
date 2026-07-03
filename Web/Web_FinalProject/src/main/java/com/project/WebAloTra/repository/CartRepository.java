@@ -13,10 +13,17 @@ import java.util.List;
 public interface CartRepository extends JpaRepository<Cart, Long> {
 
     // Đã dùng VPD (Virtual Private Database), tự lọc ở tầng DB
-    // List<Cart> findAllByAccount_Id(Long accountId);
     boolean existsByProductDetail_Id(Long productDetailId);
     Cart findByProductDetail_Id(Long productDetailId);
     Cart findByProductDetail(ProductDetail productDetail);
-    // void deleteAllByAccount_Id(Long accountId);
 
+    // ✅ [FIX] Xóa cart theo account_id cụ thể, tránh xóa cart của user khác
+    void deleteByAccount_Id(Long accountId);
+
+    // ✅ [FIX] Native query đảm bảo đúng tên cột trong Oracle, tránh bị VPD lọc sai
+    @org.springframework.data.jpa.repository.Query(
+        value = "SELECT * FROM cart WHERE account_id = :accountId",
+        nativeQuery = true
+    )
+    List<Cart> findAllByAccount_Id(@org.springframework.data.repository.query.Param("accountId") Long accountId);
 }

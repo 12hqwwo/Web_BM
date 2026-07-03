@@ -107,12 +107,31 @@ public class CartServiceImpl implements CartService {
     @Override
     public List<CartDto> getAllCartByAccountId() {
         Account account = UserLoginUtil.getCurrentLogin();
-        List<Cart> cartList = cartRepository.findAll();
+        if (account == null) {
+            System.out.println("🛠️ [Cart] Account = null, trả rỗng");
+            return new ArrayList<>();
+        }
+
+        System.out.println("🛠️ [Cart] Đang lấy cart cho account.id = " + account.getId());
+
+        // ✅ [FIX] Lấy cart theo account_id cụ thể — Native query tránh VPD lọc sai
+        List<Cart> cartList = cartRepository.findAllByAccount_Id(account.getId());
+        System.out.println("🛠️ [Cart] Số lượng cart tìm được trong DB: " + cartList.size());
+
         List<CartDto> cartDtos = new ArrayList<>();
 
         cartList.forEach(cart -> {
+            if (cart.getProductDetail() == null || cart.getProductDetail().getProduct() == null) {
+                System.out.println("⚠️ [Cart] Cart id=" + cart.getId() + " bị bỏ qua: ProductDetail hoặc Product null");
+                return; // ✅ [FIX] bỏ qua cart bị mất sản phẩm, tránh NPE
+            }
+
             Product product = productRepository.findById(cart.getProductDetail().getProduct().getId())
-                    .orElseThrow();
+                    .orElse(null);
+            if (product == null) {
+                System.out.println("⚠️ [Cart] Cart id=" + cart.getId() + " bị bỏ qua: Product không tịn tại");
+                return; // ✅ [FIX] bỏ qua thay vì orElseThrow() gây crash
+            }
 
             ProductCart productCart = new ProductCart();
             productCart.setProductId(product.getId());
@@ -144,43 +163,56 @@ public class CartServiceImpl implements CartService {
             cartDto.setDetail(productDetailDto);
             cartDtos.add(cartDto);
         });
+
+        System.out.println("🛠️ [Cart] Số cart sau khi map thành DTO: " + cartDtos.size());
         return cartDtos;
     }
 
     @Override
+    @Transactional(rollbackOn = Exception.class)
     public void addToCart(CartDto cartDto) throws NotFoundException {
-        Cart cart = new Cart();
         Account account = UserLoginUtil.getCurrentLogin();
-        cart.setAccount(account);
+        // ✅ [FIX] Guard: nếu chưa đăng nhập thì không lưu cart vào DB
+        if (account == null) {
+            throw new ShopApiException(HttpStatus.UNAUTHORIZED, "Bạn cần đăng nhập để thêm vào giỏ hàng");
+        }
 
         ProductDetail productDetail = productDetailRepository.findById(cartDto.getDetail().getId())
                 .orElseThrow(() -> new NotFoundException("Product not found"));
 
-        cart.setProductDetail(productDetail);
         int quantityAdding = cartDto.getQuantity();
         int quantityRemaining = productDetail.getQuantity();
 
-        if (cartRepository.existsByProductDetail_Id(productDetail.getId())) {
-            Cart existsCart = cartRepository.findByProductDetail_Id(productDetail.getId());
+        // ✅ [FIX] Tìm cart theo cả productDetailId và accountId — tránh lấy nhầm cart của user khác
+        Cart existsCart = cartRepository.findAllByAccount_Id(account.getId())
+                .stream()
+                .filter(c -> c.getProductDetail() != null &&
+                             c.getProductDetail().getId().equals(productDetail.getId()))
+                .findFirst()
+                .orElse(null);
+
+        if (existsCart != null) {
             int currentQuantity = existsCart.getQuantity();
             int quantityNeedToAdd = currentQuantity + quantityAdding;
-
-            existsCart.setQuantity(quantityNeedToAdd);
-            existsCart.setUpdateDate(LocalDateTime.now());
 
             if (quantityRemaining == 0) {
                 throw new ShopApiException(HttpStatus.BAD_REQUEST, "Sản phẩm có thuộc tính này đã hết hàng");
             }
-
             if (quantityRemaining < quantityNeedToAdd) {
                 throw new ShopApiException(HttpStatus.BAD_REQUEST, "Số lượng thêm vào giỏ hàng lớn hơn số lượng tồn");
             }
+
+            existsCart.setQuantity(quantityNeedToAdd);
+            existsCart.setUpdateDate(LocalDateTime.now());
             cartRepository.save(existsCart);
         } else {
             if (quantityRemaining < quantityAdding) {
                 throw new ShopApiException(HttpStatus.BAD_REQUEST, "Số lượng thêm vào giỏ hàng lớn hơn số lượng tồn");
             }
 
+            Cart cart = new Cart();
+            cart.setAccount(account);
+            cart.setProductDetail(productDetail);
             cart.setQuantity(quantityAdding);
             cart.setCreateDate(LocalDateTime.now());
             cart.setUpdateDate(LocalDateTime.now());
@@ -260,11 +292,13 @@ public class CartServiceImpl implements CartService {
             String errorMsg = (String) query.getOutputParameterValue("p_error_msg");
 
             if (errorCode != null && errorCode < 0) {
+                System.err.println("LỖI TẠO ĐƠN HÀNG ORACLE: " + errorMsg + " CODE: " + errorCode);
                 throw new ShopApiException(HttpStatus.BAD_REQUEST, errorMsg);
             }
 
             if (UserLoginUtil.getCurrentLogin() != null) {
-                cartRepository.deleteAll();
+                // ✅ [FIX] Xóa đúcng giỏ hàng của user hiện tại, không xóa của người khác
+                cartRepository.deleteByAccount_Id(UserLoginUtil.getCurrentLogin().getId());
             }
 
         } catch (Exception e) {

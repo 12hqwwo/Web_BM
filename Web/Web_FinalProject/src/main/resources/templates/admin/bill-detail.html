@@ -267,7 +267,7 @@
 									</div>
 								</div>
 							</div>
-							<div class="py-2 bill-detail-update-status">
+							<div class="py-2 bill-detail-update-status" sec:authorize="!hasRole('ADMIN')">
 								<form
 									th:action="@{'/admin/update-bill-status2/' + ${billdetail.maDonHang}}"
 									method="get">
