@@ -212,7 +212,7 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 	 * =============================
 	 */
 	@Query(value = """
-		    SELECT TRUNC(b.create_date) AS date,
+		    SELECT TRUNC(b.create_date) AS create_date,
 		           COALESCE(SUM(b.amount), 0) 
 		           - COALESCE(SUM(br.returnMoney), 0) 
 		           + COALESCE(SUM(rd.quantityReturn * pd.price), 0) AS revenue
@@ -239,7 +239,7 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 	 * =============================
 	 */
 		@Query(value = """
-			    SELECT TO_CHAR(b.create_date, 'YYYY-MM-DD') AS date,
+			    SELECT TO_CHAR(b.create_date, 'YYYY-MM-DD') AS create_date,
 			           COALESCE(SUM(b.amount), 0) 
 			           - COALESCE(SUM(br.returnMoney), 0)
 			           + COALESCE(SUM(rd.quantityReturn * pd.price), 0) AS revenue

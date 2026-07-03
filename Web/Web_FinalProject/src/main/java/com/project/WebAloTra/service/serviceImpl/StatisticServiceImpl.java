@@ -45,9 +45,17 @@ public class StatisticServiceImpl implements StatisticService {
         Map<LocalDate, Double> revenueMap = new HashMap<>();
 
         for (Object[] result : results) {
-            java.sql.Timestamp timestamp = (java.sql.Timestamp) result[0];
-            LocalDate date = timestamp.toLocalDateTime().toLocalDate();
-            Double revenue = ((Number) result[1]).doubleValue();
+            // Oracle DATE (TRUNC) ó thể trả về java.sql.Date hoặc java.sql.Timestamp tùy JDBC driver
+            LocalDate date;
+            if (result[0] instanceof java.sql.Timestamp) {
+                date = ((java.sql.Timestamp) result[0]).toLocalDateTime().toLocalDate();
+            } else if (result[0] instanceof java.sql.Date) {
+                date = ((java.sql.Date) result[0]).toLocalDate();
+            } else {
+                // Fallback: convert toString
+                date = LocalDate.parse(result[0].toString().substring(0, 10));
+            }
+            Double revenue = result[1] != null ? ((Number) result[1]).doubleValue() : 0.0;
             revenueMap.put(date, revenue);
         }
 

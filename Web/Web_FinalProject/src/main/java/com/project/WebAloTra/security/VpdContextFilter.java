@@ -125,6 +125,16 @@ public class VpdContextFilter extends OncePerRequestFilter {
             try {
                 org.hibernate.Session session = entityManager.unwrap(org.hibernate.Session.class);
                 session.doWork(connection -> {
+                    // ===== [FIX] Reset VPD Context của Khang (address + cart + bill) =====
+                    // Khi anonymous, phải xóa account_id trước khi thực hiện query khác
+                    // Nếu không, connection pool có thể giữ account_id của user trước
+                    try (java.sql.CallableStatement csKhang = connection
+                            .prepareCall("{call TRASUA.pkg_vpd_security.set_account_id(NULL)}")) {
+                        csKhang.execute();
+                    } catch (Exception ex) {
+                        // Bỏ qua nếu chưa cài
+                    }
+
                     // Xóa VPD Context của Tín (Truyền rỗng để VPD hiểu là Admin/Bypass, cho phép
                     // query bảng account)
                     try (java.sql.CallableStatement cs3 = connection

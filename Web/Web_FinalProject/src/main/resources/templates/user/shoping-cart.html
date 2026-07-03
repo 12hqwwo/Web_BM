@@ -825,11 +825,11 @@
 
                     // ✅ Dữ liệu gửi về backend
                     const dataSend = {
-                        paymentMethodId: paymentMethodId,
+                        paymentMethodId: paymentMethodId ? parseInt(paymentMethodId) : null,
                         billingAddress: selectedAddressElement.text().trim(),
-                        promotionPrice: promotion,
-                        voucherId: voucherId,
-                        branchId: branchId, // ✅ Đã có chi nhánh gửi đi
+                        promotionPrice: parseFloat(promotion) || 0,
+                        voucherId: (voucherId && voucherId !== "") ? parseInt(voucherId) : null, // ✅ Gửi null nếu không chọn voucher
+                        branchId: branchId ? parseInt(branchId) : null, // ✅ Đã có chi nhánh gửi đi
                         orderDetailDtos: orderDetails // ✅ Không gửi toppings ở root nữa
                     };
 

@@ -27,7 +27,12 @@ public class StatisticRestController {
             @RequestParam String month,
             @RequestParam String year,
             @RequestParam(required = false) Long branchId) {
-        return statisticService.getDayInMonthStatistic(month, year, branchId);
+        try {
+            return statisticService.getDayInMonthStatistic(month, year, branchId);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return java.util.Collections.emptyList();
+        }
     }
 
     // =============================================================
@@ -59,7 +64,12 @@ public class StatisticRestController {
     public List<MonthInYearStatistic> getMonthInYearStatistic(
             @RequestParam String year,
             @RequestParam(required = false) Long branchId) {
-        return statisticService.getMonthInYearStatistic(year, branchId);
+        try {
+            return statisticService.getMonthInYearStatistic(year, branchId);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return java.util.Collections.emptyList();
+        }
     }
 
     // =============================================================

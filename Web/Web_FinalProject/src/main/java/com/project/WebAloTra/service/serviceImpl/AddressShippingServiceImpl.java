@@ -38,8 +38,8 @@ public class AddressShippingServiceImpl implements AddressShippingService {
             // Guest không có địa chỉ đã lưu, trả về danh sách rỗng
             return new ArrayList<>();
         }
-        
-        List<AddressShipping> addressShippings = addressShippingRepository.findAll() /* VPD tự lọc theo account_id */;
+        // Thay đổi: Dùng explicit filter thay vì dựa vào VPD findAll() vì Admin/Vendor (role 1, 2, 5) sẽ bypass VPD (1=1) và thấy toàn bộ địa chỉ hệ thống.
+        List<AddressShipping> addressShippings = addressShippingRepository.findAllByCustomer_Account_Id(currentAccount.getId());
         List<AddressShippingDto> addressShippingDtos = new ArrayList<>();
         addressShippings.forEach(item -> {
             AddressShippingDto addressShippingDto = new AddressShippingDto();
@@ -64,7 +64,8 @@ public class AddressShippingServiceImpl implements AddressShippingService {
         }
         
         // User đã đăng nhập - kiểm tra giới hạn 5 địa chỉ
-        List<AddressShipping> addressShippings = addressShippingRepository.findAll() /* VPD tự lọc theo account_id */;
+        // Thay đổi: Dùng explicit filter thay vì dựa vào VPD findAll()
+        List<AddressShipping> addressShippings = addressShippingRepository.findAllByCustomer_Account_Id(currentAccount.getId());
         if(addressShippings.size() >= 5) {
             throw new ShopApiException(HttpStatus.BAD_REQUEST, "Bạn chỉ được thêm tối đa 5 địa chỉ");
         }
