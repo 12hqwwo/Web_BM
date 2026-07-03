@@ -362,7 +362,7 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 			    q.customer_id,
 			    q.discount_code_id,
 			    q.payment_method_id,
-			    q.branch_id, q.cashier_account_id
+			    q.branch_id, q.cashier_account_id, q.account_id
 			FROM (
 			    SELECT
 			        b.id,
@@ -378,7 +378,7 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 			        b.customer_id,
 			        b.discount_code_id,
 			        b.payment_method_id,
-			        b.branch_id, b.cashier_account_id
+			        b.branch_id, b.cashier_account_id, b.account_id
 			    FROM bill b
 			    LEFT JOIN bill_detail bd ON b.id = bd.bill_id
 			    LEFT JOIN (
@@ -390,7 +390,7 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 			    GROUP BY
 			        b.id, b.billing_address, b.code, b.create_date, b.invoice_type,
 			        b.promotion_price, b.return_status, b.status, b.update_date,
-			        b.customer_id, b.discount_code_id, b.payment_method_id, b.branch_id, b.cashier_account_id
+			        b.customer_id, b.discount_code_id, b.payment_method_id, b.branch_id, b.cashier_account_id, b.account_id
 			) q
 			ORDER BY q.create_date DESC
 			""", countQuery = """
@@ -419,7 +419,7 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 			    q.customer_id,
 			    q.discount_code_id,
 			    q.payment_method_id,
-			    q.branch_id, q.cashier_account_id
+			    q.branch_id, q.cashier_account_id, q.account_id
 			FROM (
 			    SELECT
 			        b.id,
@@ -435,7 +435,7 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 			        b.customer_id,
 			        b.discount_code_id,
 			        b.payment_method_id,
-			        b.branch_id, b.cashier_account_id
+			        b.branch_id, b.cashier_account_id, b.account_id
 			    FROM bill b
 			    LEFT JOIN bill_detail bd ON b.id = bd.bill_id
 			    LEFT JOIN (
@@ -444,17 +444,17 @@ public interface BillRepository extends JpaRepository<Bill, Long>, JpaSpecificat
 			        GROUP BY bill_detail_id
 			    ) t ON bd.id = t.bill_detail_id
 			    /* VPD tự lọc theo customer_id */
-			      AND b.status = :status
+			    WHERE b.status = :status
 			    GROUP BY
 			        b.id, b.billing_address, b.code, b.create_date, b.invoice_type,
 			        b.promotion_price, b.return_status, b.status, b.update_date,
-			        b.customer_id, b.discount_code_id, b.payment_method_id, b.branch_id, b.cashier_account_id
+			        b.customer_id, b.discount_code_id, b.payment_method_id, b.branch_id, b.cashier_account_id, b.account_id
 			) q
 			ORDER BY q.create_date DESC
 			""", countQuery = """
 			    SELECT COUNT(*)
 			    FROM bill
-			    /* VPD tự lọc theo customer_id */ AND status = :status
+			    /* VPD tự lọc theo customer_id */ WHERE status = :status
 			""", nativeQuery = true)
 	Page<Bill> getBillByStatus(@Param("status") String status, Pageable pageable);
 

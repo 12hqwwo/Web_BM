@@ -12,6 +12,7 @@ import org.springframework.stereotype.Controller;
 import javax.persistence.EntityManager;
 import javax.persistence.ParameterMode;
 import javax.persistence.StoredProcedureQuery;
+import com.project.WebAloTra.utils.UserLoginUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.ui.Model;
@@ -129,12 +130,18 @@ public class PaymentController {
                                 query.registerStoredProcedureParameter("p_promotion_price", Double.class, ParameterMode.IN);
                                 query.registerStoredProcedureParameter("p_branch_id", Long.class, ParameterMode.IN);
                                 query.registerStoredProcedureParameter("p_order_details_json", String.class, ParameterMode.IN);
+                                query.registerStoredProcedureParameter("p_account_id", Long.class, ParameterMode.IN);
                                 
                                 query.registerStoredProcedureParameter("p_bill_id", Long.class, ParameterMode.OUT);
                                 query.registerStoredProcedureParameter("p_bill_code", String.class, ParameterMode.OUT);
                                 query.registerStoredProcedureParameter("p_final_amount", Double.class, ParameterMode.OUT);
                                 query.registerStoredProcedureParameter("p_error_code", Integer.class, ParameterMode.OUT);
                                 query.registerStoredProcedureParameter("p_error_msg", String.class, ParameterMode.OUT);
+
+                                Long accountId = null;
+                                if (UserLoginUtil.getCurrentLogin() != null) {
+                                    accountId = UserLoginUtil.getCurrentLogin().getId();
+                                }
 
                                 query.setParameter("p_order_id_vnpay", paymentResultDto.getTxnRef());
                                 query.setParameter("p_billing_address", orderDto.getBillingAddress());
@@ -144,6 +151,7 @@ public class PaymentController {
                                 query.setParameter("p_promotion_price", promotionDiscount);
                                 query.setParameter("p_branch_id", orderDto.getBranchId());
                                 query.setParameter("p_order_details_json", orderDetailsJson);
+                                query.setParameter("p_account_id", accountId);
 
                                 query.execute();
 

@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- đŸ“Œ MODULE Gá»˜P Tá»ª FILE: 1_PROC_CREATE_ORDER.sql
 -- ============================================================
 -- ==========================================
@@ -119,35 +119,136 @@ BEGIN
             END IF;
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
-                p_error_code := -3;
-                p_error_msg  := 'Không tìm thấy voucher ID=' || p_voucher_id;
-                RETURN;
+-- ==========================================
+-- 0. T?O SEQUENCE CHO M? HA N
+-- ==========================================
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE SEQUENCE SEQ_BILL_CODE START WITH 1 INCREMENT BY 1 NOCACHE';
+EXCEPTION WHEN OTHERS THEN
+    IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+-- =================================================================
+-- PROC_CREATE_ORDER.sql
+-- Stored Procedure: Tạo đơn hàng (Bắt buộc sử dụng)
+-- Schema: TRASUA (Oracle 12c+)
+-- Mọi đặt hàng phải đi qua procedure này.
+-- Không cho phép thực thi business logic Java trực tiếp.
+-- =================================================================
+
+-- RBAC: Grant quyền EXECUTE (chạy bởi DBA 1 lần)
+-- GRANT EXECUTE ON PROC_CREATE_ORDER TO TRASUA;
+-- REVOKE EXECUTE ON PROC_CREATE_ORDER FROM PUBLIC;
+
+CREATE OR REPLACE PROCEDURE PROC_CREATE_ORDER (
+    p_billing_address   IN VARCHAR2,
+    p_payment_method_id IN NUMBER,
+    p_customer_id       IN NUMBER,
+    p_voucher_id        IN NUMBER,
+    p_promotion_price   IN NUMBER,
+    p_branch_id         IN NUMBER,
+    p_cashier_id        IN NUMBER,     -- Nguoi lap don tai quay (OFFLINE)
+    p_order_details     IN CLOB,
+    p_account_id        IN NUMBER DEFAULT NULL, -- TAI KHOAN DANG NHAP (ONLINE)
+    p_bill_id           OUT NUMBER,
+    p_bill_code         OUT VARCHAR2,
+    p_final_amount      OUT NUMBER,
+    p_error_code        OUT NUMBER,
+    p_error_msg         OUT NVARCHAR2
+) AS
+    -- ===== Biến nội bộ =====
+    v_bill_id           NUMBER(19);
+    v_bill_code         VARCHAR2(50);
+    v_last_code         VARCHAR2(50);
+    v_next_num          NUMBER := 1;
+    v_num_part          VARCHAR2(50);
+    v_total             NUMBER(19,2) := 0;
+    v_final_total       NUMBER(19,2) := 0;
+    v_promotion         NUMBER(19,2) := 0;
+
+    -- ===== Biến xử lý sản phẩm =====
+    v_pd_id             NUMBER(19);
+    v_qty               NUMBER(10);
+    v_pd_price          NUMBER(19,2);
+    v_pd_qty_stock      NUMBER(10);
+    v_pd_status         NUMBER(10);
+    v_product_id        NUMBER(19);
+    v_product_name      NVARCHAR2(255);
+    v_discount_price    NUMBER(19,2);
+    v_unit_price        NUMBER(19,2);
+    v_topping_total     NUMBER(19,2);
+    v_bill_detail_id    NUMBER(19);
+
+    -- ===== Biến phụ =====
+    v_discount_usage    NUMBER(10);
+    v_pay_method_name   VARCHAR2(255);
+
+    -- ===== Cursor: parse từng item trong JSON =====
+    CURSOR c_items IS
+        SELECT jt.product_detail_id,
+               jt.quantity,
+               jt.toppings_json
+        FROM JSON_TABLE(p_order_details, '$[*]'
+            COLUMNS (
+                product_detail_id NUMBER        PATH '$.productDetailId',
+                quantity          NUMBER        PATH '$.quantity',
+                toppings_json     CLOB FORMAT JSON PATH '$.toppings'
+            )
+        ) jt;
+
+BEGIN
+    p_error_code := 0;
+    p_error_msg  := NULL;
+
+    -- ==============================================================
+    -- BƯỚC 1: Sinh mã hóa đơn tự động bằng SEQUENCE (HD + YYYYMMDD + SEQ)
+    -- ==============================================================
+    SELECT 'HD' || TO_CHAR(SYSDATE, 'YYYYMMDD') || LPAD(SEQ_BILL_CODE.NEXTVAL, 4, '0') 
+    INTO v_bill_code FROM DUAL;
+
+    -- ==============================================================
+    -- BƯỚC 2: Chuẩn hóa promotion price
+    -- ==============================================================
+    IF p_promotion_price IS NULL OR p_promotion_price < 0 THEN
+        v_promotion := 0;
+    ELSE
+        v_promotion := p_promotion_price;
+    END IF;
+
+    -- ==============================================================
+    -- BƯỚC 3: Kiểm tra voucher (nếu có)
+    -- ==============================================================
+    IF p_voucher_id IS NOT NULL THEN
+        BEGIN
+            SELECT maximum_usage INTO v_discount_usage
+            FROM discount_code
+            WHERE id = p_voucher_id;
+
+            IF v_discount_usage <= 0 THEN
+                raise_application_error(-20002, 'Mã giảm giá đã hết lượt sử dụng');
+            END IF;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                raise_application_error(-20003, 'Không tìm thấy voucher ID=' || p_voucher_id);
         END;
     END IF;
 
     -- ==============================================================
     -- BƯỚC 4: Tạo bản ghi BILL
-    -- Status tự động: OFFLINE → HOAN_THANH, ONLINE → CHO_XAC_NHAN
     -- ==============================================================
     INSERT INTO bill (
         amount, billing_address, code, create_date,
         invoice_type, promotion_price, return_status, status,
-        update_date, customer_id, discount_code_id,
-        payment_method_id, branch_id
+        update_date, customer_id, account_id, discount_code_id,
+        payment_method_id, branch_id, cashier_account_id
     ) VALUES (
-        0,
-        p_billing_address,
-        v_bill_code,
-        SYSTIMESTAMP,
-        p_invoice_type,
-        v_promotion,
-        0,
-        CASE WHEN p_invoice_type = 'OFFLINE' THEN 'HOAN_THANH' ELSE 'CHO_XAC_NHAN' END,
-        SYSTIMESTAMP,
-        p_customer_id,
-        p_voucher_id,
-        p_payment_method_id,
-        p_branch_id
+        0, -- Tong tien se duoc update sau khi loop tung chi tiet
+        p_billing_address, v_bill_code, CURRENT_TIMESTAMP,
+        CASE WHEN p_cashier_id IS NOT NULL THEN 'OFFLINE' ELSE 'ONLINE' END, 
+        p_promotion_price, 0, 
+        CASE WHEN p_cashier_id IS NOT NULL THEN 'HOAN_THANH' ELSE 'CHO_XAC_NHAN' END,
+        CURRENT_TIMESTAMP, p_customer_id, p_account_id, p_voucher_id,
+        p_payment_method_id, p_branch_id, p_cashier_id
     ) RETURNING id INTO v_bill_id;
 
     -- ==============================================================
@@ -167,12 +268,10 @@ BEGIN
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
                 ROLLBACK;
-                p_error_code := -4;
-                p_error_msg  := 'Không tìm thấy sản phẩm ID=' || v_pd_id;
-                RETURN;
+                raise_application_error(-20004, 'Không tìm thấy sản phẩm ID=' || v_pd_id);
         END;
 
-        IF p_invoice_type = 'OFFLINE' THEN
+        IF p_cashier_id IS NOT NULL THEN
             BEGIN
                 SELECT quantity INTO v_pd_qty_stock
                 FROM   branch_inventory
@@ -180,27 +279,21 @@ BEGIN
             EXCEPTION
                 WHEN NO_DATA_FOUND THEN
                     ROLLBACK;
-                    p_error_code := -6;
-                    p_error_msg  := 'Sản phẩm ' || v_product_name || ' không có trong kho chi nhánh này';
-                    RETURN;
+                    raise_application_error(-20006, 'Sản phẩm ' || v_product_name || ' không có trong kho chi nhánh này');
             END;
         END IF;
 
         -- Kiểm tra ngừng bán (status = 2)
         IF v_pd_status = 2 THEN
             ROLLBACK;
-            p_error_code := -5;
-            p_error_msg  := 'Sản phẩm "' || v_product_name || '" đã ngừng bán';
-            RETURN;
+            raise_application_error(-20005, 'Sản phẩm "' || v_product_name || '" đã ngừng bán');
         END IF;
 
         -- Kiểm tra tồn kho đủ không
         IF v_pd_qty_stock - v_qty < 0 THEN
             ROLLBACK;
-            p_error_code := -6;
-            p_error_msg  := 'Sản phẩm "' || v_product_name
-                         || '" chỉ còn lại ' || v_pd_qty_stock || ' sản phẩm';
-            RETURN;
+            raise_application_error(-20006, 'Sản phẩm "' || v_product_name
+                         || '" chỉ còn lại ' || v_pd_qty_stock || ' sản phẩm');
         END IF;
 
         BEGIN
@@ -259,7 +352,7 @@ BEGIN
         END IF;
 
         -- Trừ tồn kho
-        IF p_invoice_type = 'OFFLINE' THEN
+        IF p_cashier_id IS NOT NULL THEN
             UPDATE branch_inventory
             SET    quantity = quantity - v_qty
             WHERE  branch_id = p_branch_id AND product_detail_id = v_pd_id;
@@ -310,12 +403,6 @@ BEGIN
             0,
             v_bill_id
         );
-    ELSIF p_order_id_vnpay IS NOT NULL THEN
-        -- Chuyển khoản VNPay: gán bill_id vào payment đã tạo trước
-        UPDATE payment
-        SET    bill_id = v_bill_id,
-               STATUSEXCHANGE = 0
-        WHERE  ORDERID = p_order_id_vnpay;
     ELSE
         -- Offline / trường hợp khác: tạo payment
         INSERT INTO payment (amount, ORDERID, ORDERSTATUS, PAYMENTDATE, STATUSEXCHANGE, bill_id)
@@ -426,6 +513,7 @@ CREATE OR REPLACE PROCEDURE PROC_CONFIRM_PAYMENT (
     p_promotion_price   IN  NUMBER,
     p_branch_id         IN  NUMBER,
     p_order_details_json IN CLOB,       -- JSON array sản phẩm + topping
+    p_account_id        IN  NUMBER DEFAULT NULL, -- TAI KHOAN DANG NHAP (ONLINE)
     -- ===== OUTPUT =====
     p_bill_id           OUT NUMBER,
     p_bill_code         OUT VARCHAR2,
@@ -533,12 +621,12 @@ BEGIN
     INSERT INTO bill (
         amount, billing_address, code, create_date,
         invoice_type, promotion_price, return_status, status,
-        update_date, customer_id, discount_code_id,
+        update_date, customer_id, account_id, discount_code_id,
         payment_method_id, branch_id
     ) VALUES (
         0, p_billing_address, v_bill_code, SYSTIMESTAMP,
         'ONLINE', v_promotion, 0, 'CHO_XAC_NHAN',
-        SYSTIMESTAMP, p_customer_id, p_voucher_id,
+        SYSTIMESTAMP, p_customer_id, p_account_id, p_voucher_id,
         p_payment_method_id, p_branch_id
     ) RETURNING id INTO v_bill_id;
 
@@ -833,52 +921,31 @@ END;
 
 
 -- ============================================================
--- đŸ“Œ MODULE Gá»˜P Tá»ª FILE: 5_VPD_ORDERSTATUS.sql
--- ============================================================
--- 5. VPD TRẠNG THÁI ĐƠN HÀNG (Lọc BILL theo customer_id)
--- Tối ưu: Bảo mật cao & Hiệu năng tốt (Best Practices cho VPD)
--- LƯU Ý: File này chỉ áp dụng VPD cho OrderStatus (user thường xem đơn của mình).
---         Bảng BILL còn có OLS (file 8) cho phân quyền cấp quản lý (STAFF/MANAGER/DIRECTOR).
---         Hai cơ chế hoạt động cùng nhau không xung đột.
-
-ALTER SESSION SET CURRENT_SCHEMA = TRASUA;
-
--- 1. Policy Function
 CREATE OR REPLACE FUNCTION fn_vpd_bill (p_schema IN VARCHAR2, p_table IN VARCHAR2) RETURN VARCHAR2 AS
     v_acc_id VARCHAR2(100);
-    v_role_id VARCHAR2(100);
+    v_role_name VARCHAR2(100);
 BEGIN
-    v_acc_id := SYS_CONTEXT('ctx_trasua', 'account_id');
-    v_role_id := SYS_CONTEXT('ctx_trasua', 'role_id');
-
-    -- TH1: DBA chạy trực tiếp trên DB bằng quyền cao nhất -> Cho xem hết
-    IF SYS_CONTEXT('USERENV', 'SESSION_USER') IN ('SYSTEM', 'SYS') AND v_acc_id IS NULL THEN 
-        RETURN '1=1'; 
-    END IF;
-
-    -- TH2: Ứng dụng chưa login -> Block toàn bộ.
-    IF v_acc_id IS NULL THEN
-        RETURN '1=2';
+    v_acc_id := SYS_CONTEXT('auth_ctx', 'account_id');
+    v_role_name := NVL(SYS_CONTEXT('branch_ctx', 'user_role'), 'GUEST');
+    
+    -- SYSTEM bypass
+    IF SYS_CONTEXT('USERENV', 'SESSION_USER') IN ('SYSTEM', 'SYS') THEN RETURN '1=1'; END IF;
+    
+    -- Các Role khác (Admin, Manager, Staff) không bị giới hạn bởi policy của Customer
+    -- Lưu ý: Các role này sẽ tiếp tục bị giới hạn bởi policy của Staff (nếu có)
+    IF v_role_name IN ('ROLE_ADMIN', 'ROLE_VENDOR', 'ROLE_STAFF') THEN RETURN '1=1'; END IF;
+    
+    -- Nếu là Khách hàng (ROLE_USER), bắt buộc phải có account_id
+    IF v_role_name = 'ROLE_USER' AND v_acc_id IS NOT NULL THEN
+        RETURN 'account_id = ' || v_acc_id;
     END IF;
     
-    -- TH3: Admin(1) hoặc Vendor(5) -> Xem toàn bộ
-    IF v_role_id IN ('1', '5') THEN
-        RETURN '1=1';
-    END IF;
-    
-    -- TH4: Staff(2) -> Xem theo chi nhánh của mình
-    IF v_role_id = '2' THEN
-        RETURN 'branch_id = SYS_CONTEXT(''ctx_trasua'', ''branch_id'')';
-    END IF;
-
-    -- TH5: Customer (3, 4) -> Xem theo customer_id
-    RETURN 'customer_id = SYS_CONTEXT(''ctx_trasua'', ''customer_id'')';
+    RETURN '1=2';
 END;
 /
 
--- 2. Áp dụng Policy
 BEGIN
-    BEGIN
+    BEGIN 
         DBMS_RLS.DROP_POLICY('TRASUA', 'BILL', 'POLICY_BILL_STATUS');
     EXCEPTION
         WHEN OTHERS THEN NULL;

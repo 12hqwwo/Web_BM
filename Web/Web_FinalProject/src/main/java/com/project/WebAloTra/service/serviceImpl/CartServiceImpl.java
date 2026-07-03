@@ -250,8 +250,12 @@ public class CartServiceImpl implements CartService {
         try {
             String orderDetailsJson = objectMapper.writeValueAsString(orderDto.getOrderDetailDtos());
             Long customerId = null;
-            if (UserLoginUtil.getCurrentLogin() != null && UserLoginUtil.getCurrentLogin().getCustomer() != null) {
-                customerId = UserLoginUtil.getCurrentLogin().getCustomer().getId();
+            Long accountId = null;
+            if (UserLoginUtil.getCurrentLogin() != null) {
+                accountId = UserLoginUtil.getCurrentLogin().getId();
+                if (UserLoginUtil.getCurrentLogin().getCustomer() != null) {
+                    customerId = UserLoginUtil.getCurrentLogin().getCustomer().getId();
+                }
             }
             
             Double promotionDiscount = orderDto.getPromotionPrice();
@@ -261,14 +265,14 @@ public class CartServiceImpl implements CartService {
 
             StoredProcedureQuery query = entityManager.createStoredProcedureQuery("PROC_CREATE_ORDER");
             query.registerStoredProcedureParameter("p_billing_address", String.class, ParameterMode.IN);
-            query.registerStoredProcedureParameter("p_invoice_type", String.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_payment_method_id", Long.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_customer_id", Long.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_voucher_id", Long.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_promotion_price", Double.class, ParameterMode.IN);
-            query.registerStoredProcedureParameter("p_order_id_vnpay", String.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_branch_id", Long.class, ParameterMode.IN);
-            query.registerStoredProcedureParameter("p_order_details_json", String.class, ParameterMode.IN);
+            query.registerStoredProcedureParameter("p_cashier_id", Long.class, ParameterMode.IN);
+            query.registerStoredProcedureParameter("p_order_details", String.class, ParameterMode.IN);
+            query.registerStoredProcedureParameter("p_account_id", Long.class, ParameterMode.IN);
             
             query.registerStoredProcedureParameter("p_bill_id", Long.class, ParameterMode.OUT);
             query.registerStoredProcedureParameter("p_bill_code", String.class, ParameterMode.OUT);
@@ -277,14 +281,14 @@ public class CartServiceImpl implements CartService {
             query.registerStoredProcedureParameter("p_error_msg", String.class, ParameterMode.OUT);
 
             query.setParameter("p_billing_address", orderDto.getBillingAddress());
-            query.setParameter("p_invoice_type", "ONLINE");
             query.setParameter("p_payment_method_id", orderDto.getPaymentMethodId());
             query.setParameter("p_customer_id", customerId);
             query.setParameter("p_voucher_id", orderDto.getVoucherId());
             query.setParameter("p_promotion_price", promotionDiscount);
-            query.setParameter("p_order_id_vnpay", orderDto.getOrderId());
             query.setParameter("p_branch_id", orderDto.getBranchId());
-            query.setParameter("p_order_details_json", orderDetailsJson);
+            query.setParameter("p_cashier_id", null);
+            query.setParameter("p_order_details", orderDetailsJson);
+            query.setParameter("p_account_id", accountId);
 
             query.execute();
 
@@ -348,14 +352,14 @@ public class CartServiceImpl implements CartService {
 
             StoredProcedureQuery query = entityManager.createStoredProcedureQuery("PROC_CREATE_ORDER");
             query.registerStoredProcedureParameter("p_billing_address", String.class, ParameterMode.IN);
-            query.registerStoredProcedureParameter("p_invoice_type", String.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_payment_method_id", Long.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_customer_id", Long.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_voucher_id", Long.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_promotion_price", Double.class, ParameterMode.IN);
-            query.registerStoredProcedureParameter("p_order_id_vnpay", String.class, ParameterMode.IN);
             query.registerStoredProcedureParameter("p_branch_id", Long.class, ParameterMode.IN);
-            query.registerStoredProcedureParameter("p_order_details_json", String.class, ParameterMode.IN);
+            query.registerStoredProcedureParameter("p_cashier_id", Long.class, ParameterMode.IN);
+            query.registerStoredProcedureParameter("p_order_details", String.class, ParameterMode.IN);
+            query.registerStoredProcedureParameter("p_account_id", Long.class, ParameterMode.IN);
             
             query.registerStoredProcedureParameter("p_bill_id", Long.class, ParameterMode.OUT);
             query.registerStoredProcedureParameter("p_bill_code", String.class, ParameterMode.OUT);
@@ -364,14 +368,14 @@ public class CartServiceImpl implements CartService {
             query.registerStoredProcedureParameter("p_error_msg", String.class, ParameterMode.OUT);
 
             query.setParameter("p_billing_address", orderDto.getBillingAddress());
-            query.setParameter("p_invoice_type", "OFFLINE");
             query.setParameter("p_payment_method_id", orderDto.getPaymentMethodId());
             query.setParameter("p_customer_id", customerId);
             query.setParameter("p_voucher_id", orderDto.getVoucherId());
             query.setParameter("p_promotion_price", promotionDiscount);
-            query.setParameter("p_order_id_vnpay", orderDto.getOrderId());
             query.setParameter("p_branch_id", effectiveBranchId);
-            query.setParameter("p_order_details_json", orderDetailsJson);
+            query.setParameter("p_cashier_id", cashierAccount.getId());
+            query.setParameter("p_order_details", orderDetailsJson);
+            query.setParameter("p_account_id", cashierAccount.getId());
 
             query.execute();
 

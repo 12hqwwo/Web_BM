@@ -22,6 +22,7 @@ public class OrderDto {
     private String billingAddress;
     private double promotionPrice;
     private Long voucherId;
+    private Long accountId;
     private String orderId;
     private Long branchId;
 
