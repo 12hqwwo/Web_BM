@@ -1118,27 +1118,75 @@ COMMIT;
 -- =================================================================
 
 CREATE OR REPLACE PROCEDURE PROC_UPDATE_BILL_STATUS (
-    p_bill_id    IN  NUMBER,      -- ID hóa đơn cần cập nhật
-    p_new_status IN  VARCHAR2,    -- Trạng thái mới: CHO_XAC_NHAN | CHO_LAY_HANG | CHO_GIAO_HANG | HOAN_THANH | HUY | TRA_HANG
-    p_result_msg OUT VARCHAR2     -- 'SUCCESS' hoặc mô tả lỗi
+    p_bill_id    IN  NUMBER,
+    p_new_status IN  VARCHAR2,
+    p_result_msg OUT VARCHAR2
 )
 IS
     v_count NUMBER;
+    v_old_status VARCHAR2(50);
+    v_branch_id NUMBER;
+    v_invoice_type VARCHAR2(50);
+    v_stock NUMBER;
+    
+    -- Con trỏ lấy danh sách các mặt hàng có trong Hóa đơn hiện tại
+    CURSOR c_items IS
+        SELECT bd.product_detail_id, bd.quantity, p.name as product_name, c.name as color_name, s.name as size_name
+        FROM bill_detail bd 
+        JOIN product_detail pd ON bd.product_detail_id = pd.id
+        JOIN product p ON pd.product_id = p.id
+        JOIN color c ON pd.color_id = c.id
+        JOIN size_product s ON pd.size_id = s.id
+        WHERE bd.bill_id = p_bill_id;
 BEGIN
-    -- Kiểm tra bill tồn tại
+    -- 1. Kiểm tra hóa đơn tồn tại
     SELECT COUNT(*) INTO v_count FROM bill WHERE id = p_bill_id;
     IF v_count = 0 THEN
-        p_result_msg := 'BILL_NOT_FOUND:' || p_bill_id;
+        p_result_msg := 'Lỗi: Không tìm thấy hóa đơn ID ' || p_bill_id;
         RETURN;
     END IF;
 
-    -- Validate trạng thái hợp lệ
+    -- 2. Lấy thông tin trạng thái cũ, phân loại hóa đơn và mã chi nhánh
+    SELECT status, branch_id, invoice_type INTO v_old_status, v_branch_id, v_invoice_type
+    FROM bill WHERE id = p_bill_id;
+
+    -- 3. Chặn các trạng thái tào lao ngoại lệ
     IF p_new_status NOT IN ('CHO_XAC_NHAN','CHO_LAY_HANG','CHO_GIAO_HANG','HOAN_THANH','HUY','TRA_HANG') THEN
-        p_result_msg := 'INVALID_STATUS:' || p_new_status;
+        p_result_msg := 'Lỗi: Trạng thái mới không hợp lệ (' || p_new_status || ')';
         RETURN;
     END IF;
 
-    -- Cập nhật trạng thái
+    -- =========================================================================
+    -- 4. LOGIC MỚI: TỰ ĐỘNG TRỪ KHO CHI NHÁNH KHI VENDOR XÁC NHẬN ĐƠN HÀNG ONLINE
+    -- Trigger: Nếu Web cập nhật đơn từ CHO_XAC_NHAN -> CHO_LAY_HANG (Nút Xác nhận)
+    -- =========================================================================
+    IF v_old_status = 'CHO_XAC_NHAN' AND p_new_status = 'CHO_LAY_HANG' AND v_invoice_type = 'ONLINE' AND v_branch_id IS NOT NULL THEN
+        -- Vòng lặp duyệt qua từng ly trà sữa có trong Giỏ Hàng
+        FOR rec IN c_items LOOP
+            
+            -- Ép vắt kiệt hàng từ bảng branch_inventory
+            UPDATE branch_inventory 
+            SET quantity = quantity - rec.quantity 
+            WHERE branch_id = v_branch_id AND product_detail_id = rec.product_detail_id
+            RETURNING quantity INTO v_stock;
+            
+            -- Kịch bản 1: Update có chạy vào DB nhưng kết quả trừ bị ÂM KHO
+            IF SQL%ROWCOUNT > 0 AND v_stock < 0 THEN
+                ROLLBACK; 
+                p_result_msg := 'Sản phẩm "' || rec.product_name || ' (' || rec.color_name || ' - ' || rec.size_name || ')' || '" không đủ hàng tồn kho tại Chi nhánh!';
+                RETURN;
+            END IF;
+
+            -- Kịch bản 2: Update bị lặp vào hư không do Chi nhánh bạn MỚI MỞ chưa từng nhập mặt hàng này vô kho
+            IF SQL%ROWCOUNT = 0 THEN
+                ROLLBACK;
+                p_result_msg := 'Sản phẩm "' || rec.product_name || ' (' || rec.color_name || ' - ' || rec.size_name || ')' || '" không có trong kho của Chi nhánh bạn!';
+                RETURN;
+            END IF;
+        END LOOP;
+    END IF;
+
+    -- 5. Cập nhật trạng thái thành công
     UPDATE bill
     SET    status      = p_new_status,
            update_date = SYSTIMESTAMP
@@ -1146,7 +1194,6 @@ BEGIN
 
     COMMIT;
     p_result_msg := 'SUCCESS';
-
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK;
